@@ -1,8 +1,8 @@
 module Peripatetic
+  class Country < ApplicationRecord
+    has_many :postal_codes, class_name: "Peripatetic::PostalCode", dependent: :destroy
 
-  class Country < ActiveRecord::Base
-    attr_accessible :name
-    has_many :postal_codes
+    validates :name, presence: true
+    validates :alpha2, presence: true, uniqueness: true
   end
-
 end

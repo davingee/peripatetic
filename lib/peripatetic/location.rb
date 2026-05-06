@@ -1,94 +1,67 @@
-require 'geocoder'
 module Peripatetic
-
-  class Location < ActiveRecord::Base
-    attr_accessible :latitude, :longitude, :street, :accessor_country, :accessor_postal_code, :time_zone, :ip, :country_id
+  class Location < ApplicationRecord
     attr_accessor :accessor_country, :accessor_postal_code, :ip
 
-    belongs_to :locationable, :polymorphic => true
-    belongs_to :country
-    # belongs_to :postal_code
-    
-    Geocoder.configure(:timeout => 1) 
+    belongs_to :locationable, polymorphic: true
+    belongs_to :country, optional: true
+
     reverse_geocoded_by :latitude, :longitude
     geocoded_by :location_attributes_available do |obj, results|
-      puts "Geocoding Yo!"
-      if geo = results.first
-        obj.latitude = geo.latitude if geo.latitude
+      if (geo = results.first)
+        obj.latitude  = geo.latitude  if geo.latitude
         obj.longitude = geo.longitude if geo.longitude
-        if geo.state.present? and geo.state_code.present?
-          obj.region = geo.state
-        end
-        obj.city = geo.city.downcase if geo.city.present?
-        obj.geocoded = true
+        obj.region    = geo.state if geo.state.present? && geo.state_code.present?
+        obj.city      = geo.city&.downcase
+        obj.geocoded  = true
       end
     end
-    # after_validation :geocode, :if => :street_or_postal_code_changed?
-    
-    after_validation :geocode,              :if     => :street_present_or_changed?
+
+    validates :postal_code, presence: true, if: :postal_code_changed?
+    validate :validate_postal_code, if: :postal_code_changed?
+
+    after_validation :geocode, if: :street_present_or_changed?
     after_validation :inject_location_info
-    
-    
-    validate :validate_postal_code
+
     def validate_postal_code
-      return unless postal_code_changed? and postal_code.present?
-      if PostalCode.find_by_postal_code_and_country_code(accessor_postal_code, country.alpha2).present?
-        true
-      else
-        errors.add(:postal_code, "appears to be invalid") 
-        false
+      return if postal_code.blank? || country.blank?
+      unless PostalCode.exists?(postal_code: accessor_postal_code, country_code: country.alpha2)
+        errors.add(:postal_code, "appears to be invalid")
       end
     end
 
-    def street?
-      street.present?
-    end
-
-    def city?
-      city.present?
-    end
-
-    def postal_code?
-      postal.present?
-    end
-
-    def accessor_postal_code?
-      accessor_postal_code.present?
-    end
-
-    def region?
-      region.present?
-    end
-
-    def accessor_country?
-      accessor_country.present?
-    end
+    def street?        = street.present?
+    def city?          = city.present?
+    def postal_code?   = postal_code.present?
+    def accessor_postal_code? = accessor_postal_code.present?
+    def region?        = region.present?
+    def accessor_country?     = accessor_country.present?
 
     def inject_location_info
-      # p_c = Peripatetic::PostalCode.find_by_postal_code_and_country_code("59601", (Peripatetic::Country.find(231).alpha2))
-      # p_c = Peripatetic::PostalCode.find_by_postal_code_and_country_code("59601", "US")
-      p_c = PostalCode.find_by_postal_code_and_country_code(accessor_postal_code, (country.alpha2))
-      puts "almost injecting"
-      return unless postal_code_changed? or self.new_record?
-      puts "injecting"
-      self.postal_code = p_c.postal_code
-      self.city = p_c.city
-      self.region = p_c.region
+      return if accessor_postal_code.blank? || country.blank?
+      return unless postal_code_changed? || new_record?
+
+      p_c = PostalCode.find_by(
+        postal_code: accessor_postal_code,
+        country_code: country.alpha2
+      )
+
+      return if p_c.blank?
+
+      self.postal_code  = p_c.postal_code
+      self.city         = p_c.city
+      self.region       = p_c.region
       self.country_code = p_c.country_code
-      self.time_zone = p_c.time_zone unless p_c.time_zone == "f" 
-      self.latitude = p_c.latitude
-      self.longitude = p_c.longitude
-    end
-    
-    def street_present_or_changed?
-      return true if street_changed? and street.present?
+      self.time_zone    = p_c.time_zone unless p_c.time_zone == "f"
+      self.latitude     = p_c.latitude
+      self.longitude    = p_c.longitude
     end
 
-    def fill_in_city_region_postal_code
+    def street_present_or_changed?
+      street_changed? && street.present?
     end
-    
+
     def location_attributes_available
-      if street? and accessor_postal_code?
+      if street? && accessor_postal_code?
         "#{street} #{accessor_postal_code} #{accessor_country}"
       elsif accessor_postal_code?
         "#{accessor_postal_code} #{accessor_country}"
@@ -99,23 +72,12 @@ module Peripatetic
       end
     end
 
-    def get_time_zone
-      # latitude = l.latitude
-      # longitude = l.longitude
-      url = "http://api.geonames.org/timezone?lat=#{latitude}&lng=#{longitude}&username=davinjay"
-      doc = Nokogiri::HTML(open(url))
-      doc.search("timezoneid").first.children.first.to_s
-      # self.postal_code.time_zone = self.time_zone
-      # self.postal_code.save
-    end
-
     def city_address
       "#{city} #{region}"
     end
 
     def full_address
-      ("#{street} #{city} #{region} #{postal}").chomp
+      "#{street} #{city} #{region} #{postal_code}".strip
     end
-
   end
 end

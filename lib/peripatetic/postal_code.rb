@@ -1,9 +1,9 @@
 module Peripatetic
+  class PostalCode < ApplicationRecord
+    belongs_to :country, class_name: "Peripatetic::Country"
 
-  class PostalCode < ActiveRecord::Base
-    attr_accessible :postal_code, :city, :country_code, :region, :region_code, :latitude, :longitude, :time_zone, :country_id
-    belongs_to :country
-    # has_many :locations
+    validates :postal_code, presence: true
+    validates :country_code, presence: true
+    validates :city, presence: true
   end
-
 end
